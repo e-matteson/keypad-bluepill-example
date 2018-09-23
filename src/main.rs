@@ -25,59 +25,93 @@ use hal::gpio::{Input, OpenDrain, Output, PullUp};
 use hal::prelude::*;
 use hal::stm32f103xx;
 
-// use embedded_hal::digital::{InputPin, OutputPin};
+use embedded_hal::digital::{InputPin, OutputPin};
 
 // use switch_matrix::{Cols, Matrix, Rows, VirtPin};
 use switch_matrix::VirtPin;
 
 entry!(main);
 
-struct MyMatrix {
-    rows: (
-        hal::gpio::gpiob::PB6<Input<PullUp>>,
-        hal::gpio::gpiob::PB7<Input<PullUp>>,
-    ),
-    cols: (
-        RefCell<hal::gpio::gpiob::PB4<Output<OpenDrain>>>,
-        RefCell<hal::gpio::gpiob::PB5<Output<OpenDrain>>>,
-    ),
+macro_rules! matrix {
+    ( $struct_name:ident {
+        rows: ( $($row_type:ty),* $(,)* ),
+        cols: ( $($col_type:ty),* $(,)* ),
+    }
+    ) => {
+        struct $struct_name {
+            rows: ($($row_type),*),
+            cols: ($($col_type),*),
+        }
+        impl $struct_name {
+            // fn new(rows: ($($row_type),*), cols: ($($col_type),*)) -> Self {
+            //     Self {rows: rows, cols: cols,}
+            // }
+
+            fn decompose<'a>(&'a self) ->matrix!(@array2d_type  ($($row_type),*) ($($col_type),*) ) {
+                let rows: [&InputPin; 2] = matrix!(@tuple  self.rows,  ($($row_type),*));
+                let cols: [&RefCell<OutputPin>; 2] = matrix!(@tuple  self.cols,  ($($col_type),*));
+                let mut out: matrix!(@array2d_type  ($($row_type),*) ($($col_type),*) ) = unsafe {::core::mem::uninitialized()};
+                for r in 0..rows.len(){
+                    for c in 0..cols.len(){
+                        out[r][c]= VirtPin{ row: rows[r], col: cols[c] };
+                    }
+                }
+                out
+            }
+        }
+    };
+    (@array2d_type ($($row:ty),*) ($($col:ty),*) ) => {
+        [matrix!(@array1d_type ($($col),*)) ; matrix!(@count $($row)*)]
+    };
+    (@array1d_type ($($col:ty),*)) => {
+        [matrix!(@element_type) ; matrix!(@count $($col)*)]
+    };
+    (@element_type ) => {
+        VirtPin<'a>
+    };
+    (@count $($token_trees:tt)*) => {0usize $(+ matrix!(@replace $token_trees 1usize))*};
+    (@replace $_t:tt $sub:expr) =>  {$sub};
+    (@underscore $unused:tt) => {
+        _
+    };
+    (@destruct $tuple:expr, ($($repeats:ty),*)) => {
+        {
+            let (
+                $(matrix!(@underscore $repeats),)*
+                    ref nth, ..) = $tuple;
+            nth
+        }
+    };
+    (@tuple_helper $tuple:expr, ($head:ty), ($($result:expr),*  $(,)*)) => {
+        [
+            matrix!(@destruct $tuple, ()),
+            $($result),*
+        ]
+    };
+    (@tuple_helper $tuple:expr, ($head:ty $(,$repeats:ty)* $(,)*),  ($($result:expr),*  $(,)*)) => {
+        matrix!(
+            @tuple_helper $tuple, ($($repeats),*),
+            (
+                matrix!(@destruct $tuple, ($($repeats),*)),
+                $($result),*
+            )
+        )
+    };
+    (@tuple $tuple:expr, ($($repeats:ty),*)) => {
+        matrix!(@tuple_helper $tuple, ($($repeats),*) , ())
+    };
 }
 
-// matrix!{
-//     MyMatrix{
-//         rows: [hal::gpio::gpiob::PB6, hal::gpio::gpiob::PB7],
-//         cols: [hal::gpio::gpiob::PB4, hal::gpio::gpiob::PB5],
-//     }
-// }
-
-impl MyMatrix {
-    // Return type depends on row and col nums.
-    // Can't be part of a trait - unless that's generic too.
-    // Return references instead? Or owned virtpins in an iterator?
-    // Why does it matter that you get the array of VirtPins?
-    fn decompose<'a>(&'a mut self) -> [[VirtPin<'a>; 2]; 2] {
-        [
-            [
-                VirtPin {
-                    row: &self.rows.0,
-                    col: &self.cols.0,
-                },
-                VirtPin {
-                    row: &self.rows.0,
-                    col: &self.cols.1,
-                },
-            ],
-            [
-                VirtPin {
-                    row: &self.rows.1,
-                    col: &self.cols.0,
-                },
-                VirtPin {
-                    row: &self.rows.1,
-                    col: &self.cols.1,
-                },
-            ],
-        ]
+matrix!{
+    MyMatrix {
+        rows: (
+            hal::gpio::gpiob::PB6<Input<PullUp>>,
+            hal::gpio::gpiob::PB7<Input<PullUp>>,
+        ),
+        cols: (
+            RefCell<hal::gpio::gpiob::PB4<Output<OpenDrain>>>,
+            RefCell<hal::gpio::gpiob::PB5<Output<OpenDrain>>>,
+        ),
     }
 }
 
@@ -96,7 +130,7 @@ fn main() -> ! {
     let pb6 = gpiob.pb6.into_pull_up_input(&mut gpiob.crl);
     let pb7 = gpiob.pb7.into_pull_up_input(&mut gpiob.crl);
 
-    let mut mat = MyMatrix {
+    let mat = MyMatrix {
         rows: (pb6, pb7),
         cols: (RefCell::new(pb4), RefCell::new(pb5)),
     };
