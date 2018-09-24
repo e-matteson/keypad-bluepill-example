@@ -1,148 +1,99 @@
 #![no_main]
 #![no_std]
 
-extern crate switch_matrix;
+#[macro_use]
+extern crate keypad;
 
 extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
 extern crate cortex_m_semihosting;
-extern crate embedded_hal;
-extern crate nb;
 extern crate panic_semihosting;
 extern crate stm32f103xx_hal as hal;
 
-// #[macro_use]
-// extern crate generic_array;
-
-use core::cell::RefCell;
-
+use core::fmt::Write;
+use cortex_m_semihosting::hio;
 use rt::ExceptionFrame;
 
-// use generic_array::{ArrayLength, GenericArray};
-
+use hal::gpio::gpioa::{PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7};
 use hal::gpio::{Input, OpenDrain, Output, PullUp};
 use hal::prelude::*;
 use hal::stm32f103xx;
 
-use embedded_hal::digital::{InputPin, OutputPin};
-
-// use switch_matrix::{Cols, Matrix, Rows, VirtPin};
-use switch_matrix::VirtPin;
-
 entry!(main);
 
-macro_rules! matrix {
-    ( $struct_name:ident {
-        rows: ( $($row_type:ty),* $(,)* ),
-        cols: ( $($col_type:ty),* $(,)* ),
-    }
-    ) => {
-        struct $struct_name {
-            rows: ($($row_type),*),
-            cols: ($($col_type),*),
-        }
-        impl $struct_name {
-            // fn new(rows: ($($row_type),*), cols: ($($col_type),*)) -> Self {
-            //     Self {rows: rows, cols: cols,}
-            // }
-
-            fn decompose<'a>(&'a self) ->matrix!(@array2d_type  ($($row_type),*) ($($col_type),*) ) {
-                let rows: [&InputPin; 2] = matrix!(@tuple  self.rows,  ($($row_type),*));
-                let cols: [&RefCell<OutputPin>; 2] = matrix!(@tuple  self.cols,  ($($col_type),*));
-                let mut out: matrix!(@array2d_type  ($($row_type),*) ($($col_type),*) ) = unsafe {::core::mem::uninitialized()};
-                for r in 0..rows.len(){
-                    for c in 0..cols.len(){
-                        out[r][c]= VirtPin{ row: rows[r], col: cols[c] };
-                    }
-                }
-                out
-            }
-        }
-    };
-    (@array2d_type ($($row:ty),*) ($($col:ty),*) ) => {
-        [matrix!(@array1d_type ($($col),*)) ; matrix!(@count $($row)*)]
-    };
-    (@array1d_type ($($col:ty),*)) => {
-        [matrix!(@element_type) ; matrix!(@count $($col)*)]
-    };
-    (@element_type ) => {
-        VirtPin<'a>
-    };
-    (@count $($token_trees:tt)*) => {0usize $(+ matrix!(@replace $token_trees 1usize))*};
-    (@replace $_t:tt $sub:expr) =>  {$sub};
-    (@underscore $unused:tt) => {
-        _
-    };
-    (@destruct $tuple:expr, ($($repeats:ty),*)) => {
-        {
-            let (
-                $(matrix!(@underscore $repeats),)*
-                    ref nth, ..) = $tuple;
-            nth
-        }
-    };
-    (@tuple_helper $tuple:expr, ($head:ty), ($($result:expr),*  $(,)*)) => {
-        [
-            matrix!(@destruct $tuple, ()),
-            $($result),*
-        ]
-    };
-    (@tuple_helper $tuple:expr, ($head:ty $(,$repeats:ty)* $(,)*),  ($($result:expr),*  $(,)*)) => {
-        matrix!(
-            @tuple_helper $tuple, ($($repeats),*),
-            (
-                matrix!(@destruct $tuple, ($($repeats),*)),
-                $($result),*
-            )
-        )
-    };
-    (@tuple $tuple:expr, ($($repeats:ty),*)) => {
-        matrix!(@tuple_helper $tuple, ($($repeats),*) , ())
-    };
-}
-
-matrix!{
-    MyMatrix {
+// Define the struct that represents your keypad matrix. Give the types of the
+// specific pins that will be used for the rows and columns of your matrix. Rows
+// must be input pins, and columns must be output pins. Select the modes
+// (PullUp/Floating/OpenDrain/PushPull) that are appropriate for your circuit.
+keypad_struct!{
+    struct MyKeypad {
         rows: (
-            hal::gpio::gpiob::PB6<Input<PullUp>>,
-            hal::gpio::gpiob::PB7<Input<PullUp>>,
+            PA0<Input<PullUp>>,
+            PA1<Input<PullUp>>,
+            PA2<Input<PullUp>>,
+            PA3<Input<PullUp>>,
+            PA4<Input<PullUp>>,
         ),
-        cols: (
-            RefCell<hal::gpio::gpiob::PB4<Output<OpenDrain>>>,
-            RefCell<hal::gpio::gpiob::PB5<Output<OpenDrain>>>,
+        columns: (
+            PA5<Output<OpenDrain>>,
+            PA6<Output<OpenDrain>>,
+            PA7<Output<OpenDrain>>,
         ),
     }
 }
 
 fn main() -> ! {
+    // Print using semihosting
+    let mut stdout = hio::hstdout().unwrap();
+    writeln!(stdout, "Hello, world!").unwrap();
+
+    // Get access to peripherals
     let dp = stm32f103xx::Peripherals::take().unwrap();
     let mut rcc = dp.RCC.constrain();
 
     // Configure clocks
-    // TODO is the flash stuff needed?
     let mut flash = dp.FLASH.constrain();
-    let _clock_freqs = rcc.cfgr.freeze(&mut flash.acr);
+    let _clocks = rcc.cfgr.freeze(&mut flash.acr);
 
-    let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
-    let pb4 = gpiob.pb4.into_open_drain_output(&mut gpiob.crl);
-    let pb5 = gpiob.pb5.into_open_drain_output(&mut gpiob.crl);
-    let pb6 = gpiob.pb6.into_pull_up_input(&mut gpiob.crl);
-    let pb7 = gpiob.pb7.into_pull_up_input(&mut gpiob.crl);
+    // Get access to port A pins
+    let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
 
-    let mat = MyMatrix {
-        rows: (pb6, pb7),
-        cols: (RefCell::new(pb4), RefCell::new(pb5)),
-    };
-    {
-        let pins = mat.decompose();
-        pins[0][0].is_low();
-        pins[1][0].is_low();
-        drop(pins);
+    // Create an instance of the keypad struct you defined above.
+    let keypad = keypad_new!(MyKeypad {
+        rows: (
+            gpioa.pa0.into_pull_up_input(&mut gpioa.crl),
+            gpioa.pa1.into_pull_up_input(&mut gpioa.crl),
+            gpioa.pa2.into_pull_up_input(&mut gpioa.crl),
+            gpioa.pa3.into_pull_up_input(&mut gpioa.crl),
+            gpioa.pa4.into_pull_up_input(&mut gpioa.crl),
+        ),
+        columns: (
+            gpioa.pa5.into_open_drain_output(&mut gpioa.crl),
+            gpioa.pa6.into_open_drain_output(&mut gpioa.crl),
+            gpioa.pa7.into_open_drain_output(&mut gpioa.crl),
+        ),
+    });
+
+    // Create a 2d array of virtual `KeyboardInput` pins, each representing 1 key in the
+    // matrix. They implement the `InputPin` trait and can (mostly) be used
+    // just like any other embedded-hal input pins.
+    let keys = keypad.decompose();
+
+    let first_key = &keys[0][0];
+    writeln!(stdout, "Is first key low? {}", first_key.is_low()).unwrap();
+
+    // Repeatedly read every key and print a message if it's pressed.
+
+    loop {
+        for (row_index, row) in keys.iter().enumerate() {
+            for (col_index, key) in row.iter().enumerate() {
+                if key.is_low() {
+                    writeln!(stdout, "Pressed: ({}, {})", row_index, col_index).unwrap();
+                }
+            }
+        }
     }
-    drop(mat);
-
-    loop {}
 }
 
 exception!(HardFault, hard_fault);
