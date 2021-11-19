@@ -7,8 +7,21 @@ authors = ["e-matteson <e.r.matteson@gmail.com>"]
 
 keypad = {path =  "../keypad"}
 
-cortex-m = "0.5.6"
-cortex-m-rt = "0.5.3"
-cortex-m-semihosting = "0.3.1"
-panic-semihosting = "0.4.0"
-stm32f103xx-hal = { git = "https://github.com/e-matteson/stm32f103xx-hal" }
+# cortex-m = "0.5.6"
+# cortex-m-rt = "0.5.3"
+# cortex-m-semihosting = "0.3.1"
+# panic-semihosting = "0.4.0"
+# stm32f103xx-hal = { git = "https://github.com/e-matteson/stm32f103xx-hal" }
+
+# cortex-m = "0.6.0"
+# cortex-m-rt = "0.6.10"
+# cortex-m-semihosting = "0.3.3"
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
+cortex-m-semihosting = "0.3.7"
+panic-halt = "0.2.0"
+
+[dependencies.stm32f1xx-hal]
+version = "0.7.0"
+# TODO are these features right?
+features = ["rt", "stm32f103", "medium"]

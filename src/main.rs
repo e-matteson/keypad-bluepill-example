@@ -8,8 +8,9 @@ extern crate cortex_m;
 #[macro_use]
 extern crate cortex_m_rt as rt;
 extern crate cortex_m_semihosting;
-extern crate panic_semihosting;
-extern crate stm32f103xx_hal as hal;
+extern crate panic_halt;
+// TODO update from stm32f103xx_hal crate to stm32f1xx_hal crate
+extern crate stm32f1xx_hal as hal;
 
 use core::fmt::Write;
 use cortex_m_semihosting::hio;
